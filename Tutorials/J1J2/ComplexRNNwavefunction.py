@@ -33,13 +33,13 @@ class RNNwavefunction(object):
         #Defining the neural network
         with self.graph.as_default():
             with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
-              tf.set_random_seed(seed)  # tensorflow pseudo-random generator
+                tf.set_random_seed(seed)  # tensorflow pseudo-random generator
 
-              #Define the RNN cell where units[n] corresponds to the number of memory units in each layer n
-              self.rnn=tf.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))])
+                #Define the RNN cell where units[n] corresponds to the number of memory units in each layer n
+                self.rnn=tf.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))])
 
-              self.dense_ampl = tf.layers.Dense(2,activation=sqsoftmax,name='wf_dense_ampl') #Define the Fully-Connected layer followed by a square root of Softmax
-              self.dense_phase = tf.layers.Dense(2,activation=softsign_,name='wf_dense_phase') #Define the Fully-Connected layer followed by a Softsign*pi
+                self.dense_ampl = tf.layers.Dense(2,activation=sqsoftmax,name='wf_dense_ampl') #Define the Fully-Connected layer followed by a square root of Softmax
+                self.dense_phase = tf.layers.Dense(2,activation=softsign_,name='wf_dense_phase') #Define the Fully-Connected layer followed by a Softsign*pi
 
     def sample(self,numsamples,inputdim):
         """
@@ -76,27 +76,27 @@ class RNNwavefunction(object):
                 inputs_ampl = inputs
 
                 for n in range(self.N):
-                  rnn_output,rnn_state = self.rnn(inputs_ampl, rnn_state)
+                    rnn_output,rnn_state = self.rnn(inputs_ampl, rnn_state)
 
-                  #Applying softmax layer
-                  output_ampl = self.dense_ampl(rnn_output)
+                    #Applying softmax layer
+                    output_ampl = self.dense_ampl(rnn_output)
 
-                  if n>=self.N/2: #Enforcing zero magnetization
-                    num_up = tf.cast(tf.reduce_sum(tf.stack(values=samples,axis=1), axis = 1), tf.float32)
-                    baseline = (self.N//2-1)*tf.ones(shape = [self.numsamples], dtype = tf.float32)
-                    num_down = n*tf.ones(shape = [self.numsamples], dtype = tf.float32) - num_up
-                    activations_up = heavyside(baseline - num_up)
-                    activations_down = heavyside(baseline - num_down)
+                    if n>=self.N/2: #Enforcing zero magnetization
+                        num_up = tf.cast(tf.reduce_sum(tf.stack(values=samples,axis=1), axis = 1), tf.float32)
+                        baseline = (self.N//2-1)*tf.ones(shape = [self.numsamples], dtype = tf.float32)
+                        num_down = n*tf.ones(shape = [self.numsamples], dtype = tf.float32) - num_up
+                        activations_up = heavyside(baseline - num_up)
+                        activations_down = heavyside(baseline - num_down)
 
-                    output_ampl = output_ampl*tf.cast(tf.stack([activations_down,activations_up], axis = 1), tf.float32)
-                    output_ampl = tf.nn.l2_normalize(output_ampl, axis = 1, epsilon = 1e-30) #l2 normalizing
+                        output_ampl = output_ampl*tf.cast(tf.stack([activations_down,activations_up], axis = 1), tf.float32)
+                        output_ampl = tf.nn.l2_normalize(output_ampl, axis = 1, epsilon = 1e-30) #l2 normalizing
 
-                  sample_temp=tf.reshape(tf.random.categorical(tf.log(output_ampl**2),num_samples=1),[-1,])
-                  samples.append(sample_temp)
-                  inputs=tf.one_hot(sample_temp,depth=self.outputdim)
+                    sample_temp=tf.reshape(tf.random.categorical(tf.log(output_ampl**2),num_samples=1),[-1,])
+                    samples.append(sample_temp)
+                    inputs=tf.one_hot(sample_temp,depth=self.outputdim)
 
-                  inputs_ampl = inputs
-
+                    inputs_ampl = inputs
+        print(samples)
         self.samples=tf.stack(values=samples,axis=1) # (self.N, num_samples) to (num_samples, self.N): Generate self.numsamples vectors of size self.N spin containing 0 or 1
 
         return self.samples
@@ -144,8 +144,11 @@ class RNNwavefunction(object):
                     output_phase = self.dense_phase(rnn_output)
 
                     if n>=self.N/2: #Enforcing zero magnetization
+                            #number of spin up (reduce sum = sum over the tensor axis)
                         num_up = tf.cast(tf.reduce_sum(tf.slice(samples,begin=[np.int32(0),np.int32(0)],size=[np.int32(-1),np.int32(n)]),axis=1), tf.float32)
+                            ## // is floor division. Tensor of dimension numsamples filled with int(N/2 - 1)
                         baseline = (self.N//2-1)*tf.ones(shape = [self.numsamples], dtype = tf.float32)
+                            #number of down until is the number of spin (frim 0 to N, size of the system) - num of spin up.
                         num_down = n*tf.ones(shape = [self.numsamples], dtype = tf.float32) - num_up
                         activations_up = heavyside(baseline - num_up)
                         activations_down = heavyside(baseline - num_down)
