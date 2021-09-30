@@ -74,13 +74,14 @@ def Ising_local_energies(Jz, Bx, samples, queue_samples, log_probs_tensor, sampl
 #--------------------------
 
 # ---------------- Running VMC with RNNs -------------------------------------
+#@tf.function
 def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1, num_layers = 1, numsamples = 500, learningrate = 5e-3, seed = 111):
 
     #Seeding ---------------------------------------------
-    tf.reset_default_graph()
+    tf.compat.v1.reset_default_graph()
     random.seed(seed)  # `python` built-in pseudo-random generator
     np.random.seed(seed)  # numpy pseudo-random generator
-    tf.set_random_seed(seed)  # tensorflow pseudo-random generator
+    tf.random.set_seed(seed)  # tensorflow pseudo-random generator
 
     #End Seeding ---------------------------------------------
 
@@ -93,27 +94,27 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1, num_la
     input_dim=2 #Dimension of the Hilbert space for each site (here = 2, up or down)
     numsamples_=20 #only for initialization; later I'll use a much larger value (see below)
 
-    wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
+    wf=RNNwavefunction(N,units=units,cell=tf.keras.layers.GRUCell, seed = seed) #contains the graph with the RNNs
     sampling=wf.sample(numsamples_,input_dim) #call this function once to create the dense layers
 
     #now initialize everything --------------------
-    with wf.graph.as_default():
-        samples_placeholder=tf.placeholder(dtype=tf.int32,shape=[numsamples_,N]) #the samples_placeholder are the samples of all of the spins
-        global_step = tf.Variable(0, trainable=False)
-        learningrate_placeholder=tf.placeholder(dtype=tf.float64,shape=[])
-        learning_rate_withexpdecay = tf.train.exponential_decay(learningrate_placeholder, global_step = global_step, decay_steps = 100, decay_rate = 1.0, staircase=True) #For exponential decay of the learning rate (only works if decay_rate < 1.0)
-        probs=wf.log_probability(samples_placeholder,input_dim) #The probs are obtained by feeding the sample of spins.
-        optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate_withexpdecay) #Using AdamOptimizer
-        init=tf.global_variables_initializer()
+    
+    #samples_placeholder=tf.compat.v1.placeholder(dtype=tf.int32,shape=[numsamples_,N]) #the samples_placeholder are the samples of all of the spins
+    global_step = tf.Variable(0, trainable=False)
+    #learningrate_placeholder=tf.compat.v1.placeholder(dtype=tf.float64,shape=[])
+    #learning_rate_withexpdecay = tf.compat.v1.train.exponential_decay(learningrate_placeholder, global_step = global_step, decay_steps = 100, decay_rate = 1.0, staircase=True) #For exponential decay of the learning rate (only works if decay_rate < 1.0)
+    #probs=wf.log_probability(samples_placeholder,input_dim) #The probs are obtained by feeding the sample of spins.
+    #optimizer=tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate_withexpdecay) #Using AdamOptimizer
+        
     # End Intitializing ----------------------------
 
     #Starting Session------------
     #Activating GPU
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
 
-    sess=tf.Session(graph=wf.graph, config=config)
-    sess.run(init)
+    sess=tf.compat.v1.Session(graph=wf.graph, config=config)
+    #sess.run(init)
     #---------------------------
 
     #Counting the number of parameters
@@ -140,10 +141,10 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1, num_la
         ending+='_{0}'.format(u)
 
 
-    with tf.variable_scope(wf.scope,reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(wf.scope,reuse=tf.compat.v1.AUTO_REUSE):
         with wf.graph.as_default():
-            Eloc=tf.placeholder(dtype=tf.float64,shape=[numsamples])
-            samp=tf.placeholder(dtype=tf.int32,shape=[numsamples,N])
+            Eloc=tf.compat.v1.placeholder(dtype=tf.float64,shape=[numsamples])
+            samp=tf.compat.v1.placeholder(dtype=tf.int32,shape=[numsamples,N])
             log_probs_=wf.log_probability(samp,inputdim=2)
 
             #now calculate the fake cost function to enjoy the properties of automatic differentiation
@@ -163,14 +164,14 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1, num_la
     meanEnergy=[]
     varEnergy=[]
 
-    with tf.variable_scope(wf.scope,reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(wf.scope,reuse=tf.compat.v1.AUTO_REUSE):
         with wf.graph.as_default():
 
 
           samples_ = wf.sample(numsamples=numsamples,inputdim=2)
           samples = np.ones((numsamples, N), dtype=np.int32)
 
-          samples_placeholder=tf.placeholder(dtype=tf.int32,shape=(None,N))
+          samples_placeholder=tf.compat.v1.placeholder(dtype=tf.int32,shape=(None,N))
           log_probs_tensor=wf.log_probability(samples_placeholder,inputdim=2)
 
           queue_samples = np.zeros((N+1, numsamples, N), dtype = np.int32) #Array to store all the diagonal and non diagonal matrix elements (We create it here for memory efficiency as we do not want to allocate it at each training step)

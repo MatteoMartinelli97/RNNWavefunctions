@@ -24,11 +24,11 @@ class RNNwavefunction(object):
 
         #Defining the neural network
         with self.graph.as_default():
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
-                tf.set_random_seed(seed)  # tensorflow pseudo-random generator
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
+                tf.random.set_seed(seed)  # tensorflow pseudo-random generator
                 #Define the RNN cell where units[n] corresponds to the number of memory units in each layer n
-                self.rnn=tf.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))]) 
-                self.dense = tf.layers.Dense(2,activation=tf.nn.softmax,name='wf_dense') #Define the Fully-Connected layer followed by a Softmax
+                self.rnn=tf.compat.v1.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))]) 
+                self.dense = tf.keras.layers.Dense(2,activation=tf.nn.softmax,name='wf_dense') #Define the Fully-Connected layer followed by a Softmax
 
     def sample(self,numsamples,inputdim):
         """
@@ -49,7 +49,7 @@ class RNNwavefunction(object):
         """
         with self.graph.as_default(): #Call the default graph, used if willing to create multiple graphs.
             samples = []
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
                 b=np.zeros((numsamples,inputdim)).astype(np.float64)
                 b[:,0]=np.zeros(numsamples)
                 #b = state of sigma_0 for all the samples
@@ -67,7 +67,7 @@ class RNNwavefunction(object):
                 for n in range(self.N):
                     rnn_output, rnn_state = self.rnn(inputs, rnn_state)
                     output=self.dense(rnn_output)
-                    sample_temp=tf.reshape(tf.multinomial(tf.log(output),num_samples=1),[-1,])
+                    sample_temp=tf.reshape(tf.compat.v1.multinomial(tf.math.log(output),num_samples=1),[-1,])
                     samples.append(sample_temp)
                     inputs=tf.one_hot(sample_temp,depth=self.outputdim)
 
@@ -103,7 +103,7 @@ class RNNwavefunction(object):
 
             inputs=tf.stack([a,b], axis = 1)
 
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
                 probs=[]
 
                 rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32)
@@ -124,7 +124,7 @@ class RNNwavefunction(object):
 
             inputs=tf.stack([a,b], axis = 1)
 
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
                 probs=[]
 
                 rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32)

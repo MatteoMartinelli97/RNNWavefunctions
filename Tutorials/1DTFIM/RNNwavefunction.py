@@ -5,7 +5,7 @@ import numpy as np
 import random
 
 class RNNwavefunction(object):
-    def __init__(self,systemsize,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell,activation=tf.nn.relu,units=[10],scope='RNNwavefunction', seed = 111):
+    def __init__(self,systemsize,cell=tf.keras.layers.GRUCell,activation=tf.nn.relu,units=[10],scope='RNNwavefunction', seed = 111):
         """
             systemsize:  int, size of the lattice
             cell:        a tensorflow RNN cell
@@ -24,11 +24,11 @@ class RNNwavefunction(object):
 
         #Defining the neural network
         with self.graph.as_default():
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
-                tf.set_random_seed(seed)  # tensorflow pseudo-random generator
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
+                tf.random.set_seed(seed)  # tensorflow pseudo-random generator
                 #Define the RNN cell where units[n] corresponds to the number of memory units in each layer n
-                self.rnn=tf.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))])
-                self.dense = tf.layers.Dense(2,activation=tf.nn.softmax,name='wf_dense') #Define the Fully-Connected layer followed by a Softmax
+                self.rnn=tf.compat.v1.nn.rnn_cell.MultiRNNCell([cell(units[n]) for n in range(len(units))])
+                self.dense = tf.keras.layers.Dense(2,activation=tf.nn.softmax,name='wf_dense') #Define the Fully-Connected layer followed by a Softmax
 
     def sample(self,numsamples,inputdim):
         """
@@ -46,7 +46,7 @@ class RNNwavefunction(object):
         """
         with self.graph.as_default(): #Call the default graph, used if willing to create multiple graphs.
             samples = []
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
                 b=np.zeros((numsamples,inputdim)).astype(np.float64)
                 #b = state of sigma_0 for all the samples
 
@@ -57,17 +57,28 @@ class RNNwavefunction(object):
                 self.outputdim=self.inputdim
                 self.numsamples=inputs.shape[0]
 
-                rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32) #Initialize the RNN hidden state
+                #rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32) #Initialize the RNN hidden state
                 #zero state returns a zero filled tensor withs shape = (self.numsamples, num_units)
+
+                def create_zeros(unnested_state_size):
+                    flat_dims = tf.TensorShape(unnested_state_size).as_list()
+                    init_state_size = [self.numsamples] + flat_dims
+                    return tf.zeros(init_state_size, dtype=tf.float32)
+
+                if tf.nest.is_nested(self.rnn.state_size):
+                    rnn_state = tf.nest.map_structure(create_zeros, self.rnn.state_size)
+                else:
+                    rnn_state = create_zeros(self.rnn.state_size)
 
                 for n in range(self.N):
                     rnn_output, rnn_state = self.rnn(inputs, rnn_state) #Compute the next hidden states
                     output=self.dense(rnn_output) #Apply the Softmax layer
-                    sample_temp=tf.reshape(tf.multinomial(tf.log(output),num_samples=1),[-1,]) #Sample from the probability
+                    sample_temp=tf.reshape(tf.compat.v1.multinomial(tf.math.log(output),num_samples=1),[-1,]) #Sample from the probability
                     samples.append(sample_temp)
                     inputs=tf.one_hot(sample_temp,depth=self.outputdim)
 
-        self.samples=tf.stack(values=samples,axis=1) # (self.N, num_samples) to (num_samples, self.N): Generate self.numsamples vectors of size self.N spin containing 0 or 1
+            self.samples=tf.stack(values=samples,axis=1) # (self.N, num_samples) to (num_samples, self.N): Generate self.numsamples vectors of size self.N      
+                                                    #spin containing 0 or 1
 
         return self.samples
 
@@ -97,10 +108,20 @@ class RNNwavefunction(object):
 
             inputs=tf.stack([a,b], axis = 1)
 
-            with tf.variable_scope(self.scope,reuse=tf.AUTO_REUSE):
+            with tf.compat.v1.variable_scope(self.scope,reuse=tf.compat.v1.AUTO_REUSE):
                 probs=[]
 
-                rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32)
+                #rnn_state=self.rnn.zero_state(self.numsamples,dtype=tf.float32)
+
+                def create_zeros(unnested_state_size):
+                    flat_dims = tf.TensorShape(unnested_state_size).as_list()
+                    init_state_size = [self.numsamples] + flat_dims
+                    return tf.zeros(init_state_size, dtype=tf.float32)
+
+                if tf.nest.is_nested(self.rnn.state_size):
+                    rnn_state = tf.nest.map_structure(create_zeros, self.rnn.state_size)
+                else:
+                    rnn_state = create_zeros(self.rnn.state_size)
 
                 for n in range(self.N):
                     rnn_output, rnn_state = self.rnn(inputs, rnn_state)
@@ -111,6 +132,6 @@ class RNNwavefunction(object):
             probs=tf.cast(tf.transpose(tf.stack(values=probs,axis=2),perm=[0,2,1]),tf.float64)
             one_hot_samples=tf.one_hot(samples,depth=self.inputdim, dtype = tf.float64)
 
-            self.log_probs=tf.reduce_sum(tf.log(tf.reduce_sum(tf.multiply(probs,one_hot_samples),axis=2)),axis=1)
+            self.log_probs=tf.reduce_sum(tf.math.log(tf.reduce_sum(tf.multiply(probs,one_hot_samples),axis=2)),axis=1)
 
             return self.log_probs
