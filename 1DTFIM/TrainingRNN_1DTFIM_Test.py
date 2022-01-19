@@ -194,8 +194,8 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1,
         print("Unknown symmetry: ", symRNN)
         print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
         return -1, -1
-        
-    
+
+
     sampling=wf.sample(numsamples_,input_dim) #call this function once to create the dense layers
 
     #Initialize everything --------------------
@@ -239,7 +239,7 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1,
     
     if (symRNN not in ['None', 'none']):
         ending += '_' + symRNN + 'Symm'
-    
+     
     filename= save_dir + '/RNNwavefunction_N'+str(N)+'_samp'+str(numsamples)+'_Jz1Bx'+str(Bx)+'_GRURNN_OBC'+ending + '.ckpt'
     savename = '_TFIM'
 
@@ -260,7 +260,7 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1,
 
             optstep=optimizer.apply_gradients(zip(gradients,variables), global_step = global_step)
             sess.run(tf.variables_initializer(optimizer.variables()))
-            saver=tf.train.Saver(max_to_keep=100)
+            saver=tf.train.Saver(max_to_keep=50)
     #----------------------------------------------------------------
 
     meanEnergy=[]
@@ -278,6 +278,9 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1,
                 saver.restore(sess,path+'/'+filename)
                 meanEnergy=np.load(save_dir + '/meanEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy').tolist()
                 varEnergy=np.load(save_dir + '/varEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy').tolist()
+        
+        #Loading previous random states
+        py_random_state, np_random_state, tf_random_state = open 
     #------------------------------------
 
     with tf.variable_scope(wf.scope,reuse=tf.AUTO_REUSE):
@@ -321,11 +324,11 @@ def run_1DTFIM(numsteps = 10**4, systemsize = 20, num_units = 50, Bx = 1,
         
         if (numsteps%checkpoint_steps!=0):
             #Saving the performances
-            np.save(save_dir + '/meanEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy',meanEnergy)
-            np.save(save_dir + '/varEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy',varEnergy)
+                np.save(save_dir + '/meanEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy',meanEnergy)
+                np.save(save_dir + '/varEnergy_N'+str(N)+'_samp'+str(numsamples)+'_Jz'+str(Jz[0])+'_Bx'+str(Bx)+'_GRURNN_OBC'+ savename + ending + '.npy',varEnergy)
             #Saving the model 
-            saver.save(sess,path+'/'+filename, global_step = it)
- 
+                saver.save(sess,path+'/'+filename, global_step = it)
+                
     return meanEnergy, varEnergy
     #----------------------------------------------------------------------------------------------
 
@@ -362,7 +365,7 @@ def compute_correlations_from_model(numsamples = 10**6, old_numsamples = 500,
         print("Unknown symmetry: ", symRNN)
         print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
         return -1, -1, -1, -1, -1, -1, -1
-     
+       
     numsamples_ = 20
     sampling=wf.sample(numsamples_,inputdim = 2) #call this function once to create the dense layers
 
@@ -418,6 +421,7 @@ def compute_correlations_from_model(numsamples = 10**6, old_numsamples = 500,
                 sumE = 0
                 sumE2 = 0
                 swap_sum = 0
+                swap_sum2 = 0
                 print(steps)
                 for i in range(steps):
                     print("Step: {}".format(i))
@@ -449,8 +453,9 @@ def compute_correlations_from_model(numsamples = 10**6, old_numsamples = 500,
                     x_sum2 += np.sum(x*x, axis=1)
 
                     if entropy:
-                        swap_sum += np.sum ( Swap_operator(samples, samples_B, np.arange(0, N/2, dtype=np.int32), log_probs_tensor, samples_placeholder, batch_size, sess) )
-
+                        swap_values = Swap_operator(samples, samples_B, np.arange(0, N/2, dtype=np.int32), log_probs_tensor, samples_placeholder, batch_size, sess)
+                        swap_sum += np.sum(swap_values)
+                        #swap_sum2 += np.dot(swap_values, swap_values)
 
                 meanE = sumE/original_samp
                 varE = sumE2/original_samp - meanE*meanE
@@ -570,7 +575,7 @@ def Sx_magnetization (samples, queue_samples, log_probs_tensor, samples_placehol
     - log_probs: ((N+1)*numsamples) an empty allocated np array to store the log_probs non diagonal elements
     - sess: The current TF session
     --------------------------------------------------------------------------------------------------------
-    Returns: ndarray of size (N,) with the sum over the samples of Sx_i magnetization in i-th position    
+    Returns: ndarray of size (N,) with the sum over the samples of Sx_i magnetization in i-th position
     """
     numsamples = samples.shape[0]
     N = samples.shape[1]
@@ -603,10 +608,11 @@ def Sx_magnetization (samples, queue_samples, log_probs_tensor, samples_placehol
     return Sx_mag
 
 
+
 def compute_mag_from_model(numsamples = 10**6, old_numsamples = 500, 
                                     systemsize = 20, num_units = 50, Bx = 1, num_layers = 1, 
                                     batch_size = 25000, seed = 111, 
-                                    symRNN = 'None',
+                                    symRNN = False,
                                     save_dir = "../Check_Points/1DTFIM", model_step = None, max_samp = np.inf):
 
     #Seeding ---------------------------------------------
@@ -624,17 +630,11 @@ def compute_mag_from_model(numsamples = 10**6, old_numsamples = 500,
     units=[num_units]*num_layers #list containing the number of hidden units for each layer of the networks
 
 
-    if (symRNN in ['None', 'none']): 
-        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
-    elif (symRNN == 'parity'):
-        wf=SymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    elif (symRNN == 'spinflip'):
+    if (symRNN): 
         wf=SpinFlipSymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
     else:
-        print("Unknown symmetry: ", symRNN)
-        print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
-        return -1, -1, -1, -1
-
+        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
+    
     numsamples_ = 20
     sampling=wf.sample(numsamples_,inputdim = 2) #call this function once to create the dense layers
 
@@ -658,9 +658,8 @@ def compute_mag_from_model(numsamples = 10**6, old_numsamples = 500,
     for u in units:
         ending+='_{0}'.format(u)
     
-    if (symRNN not in ['None', 'none']):
-        ending += '_' + symRNN + 'Symm'
-
+    if symRNN:
+        ending += '_symm'
     steps_string = ''
     if model_step != None:
         steps_string = '-{}'.format(model_step)
@@ -758,17 +757,11 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 500,
     units=[num_units]*num_layers #list containing the number of hidden units for each layer of the networks
 
 
-    if (symRNN in ['None', 'none']): 
-        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
-    elif (symRNN == 'parity'):
-        wf=SymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    elif (symRNN == 'spinflip'):
+    if (symRNN): 
         wf=SpinFlipSymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
     else:
-        print("Unknown symmetry: ", symRNN)
-        print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
-        return -1
-
+        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
+    
     numsamples_ = 20
     sampling=wf.sample(numsamples_,inputdim = 2) #call this function once to create the dense layers
 
@@ -792,9 +785,8 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 500,
     for u in units:
         ending+='_{0}'.format(u)
     
-    if (symRNN not in ['None', 'none']):
-        ending += '_' + symRNN + 'Symm'
-
+    if symRNN:
+        ending += '_symm'
     steps_string = ''
     if model_step != None:
         steps_string = '-{}'.format(model_step)
@@ -839,17 +831,11 @@ def get_variable(  var_name,
     units=[num_units]*num_layers #list containing the number of hidden units for each layer of the networks
 
 
-    if (symRNN in ['None', 'none']): 
-        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
-    elif (symRNN == 'parity'):
-        wf=SymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    elif (symRNN == 'spinflip'):
+    if (symRNN): 
         wf=SpinFlipSymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
     else:
-        print("Unknown symmetry: ", symRNN)
-        print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
-        return -1
-
+        wf=RNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
+    
     numsamples_ = 20
     sampling=wf.sample(numsamples_,inputdim = 2) #call this function once to create the dense layers
 
@@ -873,9 +859,8 @@ def get_variable(  var_name,
     for u in units:
         ending+='_{0}'.format(u)
     
-    if (symRNN not in ['None', 'none']):
-        ending += '_' + symRNN + 'Symm'
-
+    if symRNN:
+        ending += '_symm'
     steps_string = ''
     if model_step != None:
         steps_string = '-{}'.format(model_step)

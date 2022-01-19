@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import random
 
-class RNNwavefunction(object):
+class SymRNNwavefunction(object):
     def __init__(self,systemsize,cell=None,units=[10],scope='RNNwavefunction', seed = 111): 
         """
             systemsize:  int
