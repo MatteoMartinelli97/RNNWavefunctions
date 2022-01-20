@@ -7,9 +7,6 @@ import random
 from math import ceil
 
 from ComplexRNNwavefunction import RNNwavefunction
-
-from RNNwavefunction_paritysym import SymRNNwavefunction #To use an RNN that has a parity symmetry so that the RNN is not biased by autoregressive sampling from left to right
-from RNNwavefunction_zSpinInversionSym import SpinFlipSymRNNwavefunction
 # Loading Functions --------------------------
 def Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, batch_size, sess):
     """
@@ -128,27 +125,42 @@ def Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, s
     #Sum x interactions (odd indices)
     local_energies += J1*np.sum(np.exp(log_ampl_reshaped[1::2,:]-log_ampl_reshaped[0,:]), axis = 0)
 
-    print("x = ", np.exp(log_ampl_reshaped[1::2,:]-log_ampl_reshaped[0,:]))
 
     #Sum y-interactions (even indices) with the correct sign
     local_energies += J2*np.sum(np.array(y_states_sign_map) * np.exp(log_ampl_reshaped[2::2,:]-log_ampl_reshaped[0,:]), axis = 0)
 
-    print("y = ", np.exp(log_ampl_reshaped[2::2,:]-log_ampl_reshaped[0,:]))
     return local_energies
 #--------------------------
 
+#def Entropy():
+
+
+
+
+
+
+
+
+
+
+
 
 # ---------------- Running VMC with RNNs -------------------------------------
-def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1 = 1, J2 = 1, J3=1, 
-                num_layers = 1, numsamples = 200, learningrate = 5e-3, batch_size = 25000, seed = 111, 
-                symRNN = 'None', load_model = False,
+def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ = 1, J3_=1, 
+                num_layers = 1, numsamples = 200, learningrate = 5e-3, 
+                annealing_parameters = None, annealing_entropy = None,
+                batch_size = 25000, seed = 111, 
+                load_model = False, 
                 save_dir = ".", checkpoint_steps = 11000):
 
+    """
+    annealing_parameters = (j1, j2, j3, steps) tuple with the starting parameters for annealing and the decaying steps
+    """
     #Seeding ---------------------------------------------
     tf.reset_default_graph()
-    random.seed(seed)  # `python` built-in pseudo-random generator
-    np.random.seed(seed)  # numpy pseudo-random generator
-    tf.set_random_seed(seed)  # tensorflow pseudo-random generator
+#   random.seed(seed)  # `python` built-in pseudo-random generator
+#    np.random.seed(seed)  # numpy pseudo-random generator
+#    tf.set_random_seed(seed)  # tensorflow pseudo-random generator
 
     #End Seeding ---------------------------------------------
 
@@ -165,18 +177,8 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1 = 1, J2 = 1
     numsamples_=20 #only for initialization; later I'll use a much larger value (see below)
 
     
-    if (symRNN in ['None', 'none']): 
-        wf=RNNwavefunction(N, inputdim=4, units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
-    elif (symRNN == 'parity'):
-        wf=SymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    elif (symRNN == 'spinflip'):
-        wf=SpinFlipSymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    else:
-        print("Unknown symmetry: ", symRNN)
-        print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
-        return -1, -1
-        
-    
+
+    wf=RNNwavefunction(N, inputdim=4, units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
     sampling=wf.sample(numsamples_,input_dim) #call this function once to create the dense layers
 
     #Initialize everything --------------------
@@ -218,10 +220,7 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1 = 1, J2 = 1
     for u in units:
         ending+='_{0}'.format(u)
     
-    if (symRNN not in ['None', 'none']):
-        ending += '_' + symRNN + 'Symm'
-    
-    param_string = 'N'+str(N)+'_samp'+str(numsamples)+'_J1'+str(J1)+'_J2'+str(J2)+'_J3'+str(J3)+'_GRURNN_OBC'
+    param_string = 'N{N}_samp{samp}_J1{j1:.1f}_J2{j2:.1f}_J3{j3:.1f}_GRURNN_OBC'.format(N=N, samp=numsamples, j1=J1_, j2=J2_, j3=J3_)
     
     filename= save_dir + '/RNNwavefunction_' + param_string + ending + '.ckpt'
     savename = '_KITA'
@@ -277,13 +276,43 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1 = 1, J2 = 1
             queue_samples = np.zeros((2*N-1, numsamples, N), dtype = np.int32)
             log_amplitudes = np.zeros((2*N-1)*numsamples, dtype=np.complex64) 
 
-            for it in range(len(meanEnergy),numsteps+1):
+        ### Set Annealing process for parameters
+            if annealing_parameters!=None:
+                    J1, J2, J3, param_steps = annealing_parameters
+                    tot_steps = numsteps-len(meanEnergy) + 1
+                    decay_steps = tot_steps/param_steps
+                    j1_delta = (J1 - J1_) /decay_steps
+                    j2_delta = (J2 - J2_) /decay_steps
+                    j3_delta = (J3 - J3_ )/decay_steps
+                    print("Performing annealing...")
+                    print("Starting with j1 = {j1}, j2 = {j2}, j3 = {j3}".format(j1=J1, j2=J2, j3=J3))
+                    print("Changing parameters every {s} steps: j1-={j1}, j2-={j2}, j3-={j3}".format(s=param_steps, j1=j1_delta, j2=j2_delta, j3=j3_delta))
+            else:
+                param_steps = numsteps + 100
+                J1, J2, J3 = (J1_, J2_, J3_)
+                j1_delta = 0.0
+                j2_delta = 0.0
+                j3_delta = 0.0
+
+            if annealing_entropy!=None:
+                lambda_, entropy_steps = annealing_entropy
+            else:
+                lambda_, entropy_steps = (0.0, numsteps + 100)
+
+            starting_steps = len(meanEnergy)
+            for it in range(starting_steps,numsteps+1):
 
                 samples=sess.run(samples_)
 
+                if (it - starting_steps)%param_steps == 0:
+                    J1 -= j1_delta
+                    J2 -= j2_delta
+                    J3 -= j3_delta
+                    print("Step: ", it, " j1-->{j1}, j2-->{j2}, j3-->{j3}".format(j1=J1, j2=J2, j3=J3))
                 #Estimating local_energies
                 local_energies = Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, batch_size, sess)
-
+                #if (it - starting_steps)%entropy_steps == 0:
+                    #local_energies += lambda_ * Entropy()
                 meanE = np.mean(local_energies)
                 varE = np.var(np.real(local_energies))
 
@@ -316,7 +345,7 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1 = 1, J2 = 1
 def sample_from_model(numsamples = 10**6, old_numsamples = 200, 
                       systemsize = 20, J1=1, J2=1, J3=2, 
                       num_units = 50, num_layers = 1, 
-                      seed = 111, symRNN = False,
+                      seed = 111,
                       save_dir = ".", model_step = None):
 
     #Seeding ---------------------------------------------
@@ -333,17 +362,8 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 200,
     units=[num_units]*num_layers #list containing the number of hidden units for each layer of the networks
 
 
-    if (symRNN in ['None', 'none']): 
-        wf=RNNwavefunction(N, inputdim=4, units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
-    elif (symRNN == 'parity'):
-        wf=SymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    elif (symRNN == 'spinflip'):
-        wf=SpinFlipSymRNNwavefunction(N,units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed)
-    else:
-        print("Unknown symmetry: ", symRNN)
-        print("Accepted values are: 'None'/'none', 'parity' or 'spinflip'")
-        return -1
 
+    wf=RNNwavefunction(N, inputdim=4, units=units,cell=tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell, seed = seed) #contains the graph with the RNNs
     numsamples_ = 20
     sampling=wf.sample(numsamples_,inputdim = 4) #call this function once to create the dense layers
 
@@ -367,8 +387,6 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 200,
     for u in units:
         ending+='_{0}'.format(u)
     
-    if (symRNN not in ['None', 'none']):
-        ending += '_' + symRNN + 'Symm'
     if model_step != None:
         steps_string = '-{}'.format(model_step)
     
@@ -391,126 +409,3 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 200,
             np.save(save_dir + '/samples_'+param_string + savename + ending + '.npy',samples)
             
     return samples
-
-
-
-
-##################
-## NEW WAY
-##################
-def KitaevMatrixElements(j1,j2,j3,sigmap, sigmaH, matrixelements, periodic = False):
-    """
-    -Computes the matrix element of the Kitaev model for a given configuration sigmap
-    -We hope to make this function parallel in future versions to return the matrix elements of a large number of configurations
-    -----------------------------------------------------------------------------------
-    Parameters:
-    j1, j2, j3: np.ndarray of shape (N), (N) and (N), respectively, and dtype=float:
-                J1J2 parameters
-    sigmap:     np.ndarrray of dtype=int and shape (N)
-                rung-state, integer encoded (using 0 for dd, 1 du, 2 ud, 3 uu)
-                A sample of spins can be fed here.
-    sigmaH: an array to store the diagonal and the diagonal configurations after applying the Hamiltonian on sigmap.
-    matrixelements: an array where to store the matrix elements after applying the Hamiltonian on sigmap.
-    periodic: bool, indicate if the chain is periodic on not.
-    -----------------------------------------------------------------------------------
-    Returns: num, float which indicate the number of diagonal and non-diagonal configurations after applying the Hamiltonian on sigmap
-    """
-    N=len(j1)
-
-    num = 0 #Number of basis elements
-
-    if periodic:
-        limit = N + 1
-    else:
-        limit = N   
-    #Diagonal interaction (SzSz)
-    diag = 0
-
-    for site in range(limit):
-        if sigmap[site]== 1 or sigmap[site] == 2: #if the two neighouring spins are opposite
-            diag-=0.25*j3[site] #add a negative energy contribution
-        else:
-            diag+=0.25*j3[site]
-    
-    matrixelements[num] = diag #add the diagonal part to the matrix elements
-
-    sig = np.copy(sigmap)
-
-    sigmaH[num] = sig
-
-    num += 1
-
-    #off-diagonal part:
-    for site in range(limit - 1):
-    
-        if (site%2==0):
-            #Flip spin 2j and 2j-1
-            if j1[site] != 0.0:
-                sig=np.copy(sigmap)
-                sig[site]  = (2 + sigmap[site]) % 4
-                sig[site +1]  = (2 + sigmap[site +1]) % 4
-                sigmaH[num] = sig
-                matrixelements[num] = j1[site] * 0.25
-                num += 1
-            if j2[site] != 0.0:
-                sig=np.copy(sigmap)
-                sig[site] += 1 - 2 * (sig[site] % 2)
-                sig[site+1] += 1 - 2 * (sig[site+1] % 2)
-                sigmaH[num] = sig
-                sign = 1 - 2 * ( (sig[site] + sig[site+1])%2 == 0 )
-                matrixelements[num] =  sign * j2 * 0.25
-                num += 1
-        
-        else:
-            if j2[site] != 0.0:
-                sig=np.copy(sigmap)
-                sig[site]  = (2 + sigmap[site]) % 4
-                sig[site +1]  = (2 + sigmap[site +1]) % 4
-                sigmaH[num] = sig
-                sign = 1 - 2 * ( (sig[site] == sig[site+1]) |  ((sig[site] + sig[site+1])%4 == 1) )
-                matrixelements[num] =  sign * j2 * 0.25
-                num += 1
-            
-            if j1[site] != 0.0:
-                sig=np.copy(sigmap)
-                sig[site] += 1 - 2 * (sig[site] % 2)
-                sig[site+1] += 1 - 2 * (sig[site+1] % 2)
-                sigmaH[num] = sig
-                matrixelements[num] = j1[site] * 0.25
-                num += 1
-
-    return num
-
-def J1J2Slices(J1, J2, Bz, sigmasp, sigmas, H, sigmaH, matrixelements, Marshall_sign):
-    """
-    Returns: A tuple -The list of slices (that will help to slice the array sigmas)
-             -Total number of configurations after applying the Hamiltonian on the list of samples sigmasp (This will be useful later during training, note that it is not constant for J1J2 as opposed to TFIM)
-    ----------------------------------------------------------------------------
-    Parameters:
-    J1, J2, Bz: np.ndarray of shape (N), (N) and (N), respectively, and dtype=float:
-                J1J2 parameters
-    sigmasp:    np.ndarrray of dtype=int and shape (numsamples,N)
-                spin-states, integer encoded (using 0 for down spin and 1 for up spin)
-    sigmas: an array to store the diagonal and the diagonal configurations after applying the Hamiltonian on all the samples sigmasp.
-    H: an array to store the diagonal and the diagonal matrix elements after applying the Hamiltonian on all the samples sigmasp.
-    sigmaH: an array to store the diagonal and the diagonal configurations after applying the Hamiltonian on a single sample.
-    matrixelements: an array where to store the matrix elements after applying the Hamiltonian on sigmap on a single sample.
-    Marshall_sign: bool, indicate if the Marshall sign is applied or not.    
-    ----------------------------------------------------------------------------
-    """
-
-    slices=[]
-    sigmas_length = 0
-
-    for n in range(sigmasp.shape[0]):
-        sigmap=sigmasp[n,:]
-        num = J1J2MatrixElements(J1,J2,Bz,sigmap, sigmaH, matrixelements, Marshall_sign)#note that sigmas[0,:]==sigmap, matrixelements and sigmaH are updated
-        slices.append(slice(sigmas_length,sigmas_length + num))
-        s = slices[n]
-
-        H[s] = matrixelements[:num]
-        sigmas[s] = sigmaH[:num]
-
-        sigmas_length += num #Increasing the length of matrix elements sigmas
-
-    return slices, sigmas_length
