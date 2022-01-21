@@ -1,5 +1,7 @@
+from errno import EEXIST
 from operator import setitem
 import tensorflow as tf
+
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR) #stop displaying tensorflow warnings
 import numpy as np
 import os
@@ -8,7 +10,7 @@ from math import ceil
 
 from ComplexRNNwavefunction import RNNwavefunction
 # Loading Functions --------------------------
-def Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, batch_size, sess):
+def Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, entropy_lambda, batch_size, sess):
     """
     To get the local energies of  2-leg ladder Kitaev's model (OBC), as a 1D chain given a set of set of samples in parallel!
     Returns: (numsamples) The local energies that correspond to the "samples"
@@ -125,24 +127,11 @@ def Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, s
     #Sum x interactions (odd indices)
     local_energies += J1*np.sum(np.exp(log_ampl_reshaped[1::2,:]-log_ampl_reshaped[0,:]), axis = 0)
 
-
     #Sum y-interactions (even indices) with the correct sign
     local_energies += J2*np.sum(np.array(y_states_sign_map) * np.exp(log_ampl_reshaped[2::2,:]-log_ampl_reshaped[0,:]), axis = 0)
-
-    return local_energies
+ 
+    return local_energies - entropy_lambda*log_ampl_reshaped[0, :]
 #--------------------------
-
-#def Entropy():
-
-
-
-
-
-
-
-
-
-
 
 
 # ---------------- Running VMC with RNNs -------------------------------------
@@ -154,7 +143,8 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
                 save_dir = ".", checkpoint_steps = 11000):
 
     """
-    annealing_parameters = (j1, j2, j3, steps) tuple with the starting parameters for annealing and the decaying steps
+    annealing_parameters = (j1, j2, j3, param_steps) tuple with the starting parameters for annealing and the decaying steps
+    annealing_entropy = (lambda, entropy_steps) tuple with the starting value of lambda (weight for the entropy) and number of steps for its decaying
     """
     #Seeding ---------------------------------------------
     tf.reset_default_graph()
@@ -167,6 +157,7 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
     # System size
     N = systemsize
 
+    entropy = annealing_entropy != None
     #Learning rate
     lr=np.float64(learningrate)
 
@@ -187,7 +178,7 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
         global_step = tf.Variable(0, trainable=False)
         learningrate_placeholder=tf.placeholder(dtype=tf.float64,shape=[])
         learning_rate_withexpdecay = tf.train.exponential_decay(learningrate_placeholder, global_step = global_step, decay_steps = 100, decay_rate = 1.0, staircase=True) #For exponential decay of the learning rate (only works if decay_rate < 1.0)
-        ampl=wf.log_amplitude(samples_placeholder,input_dim) #The probs are obtained by feeding the sample of spins.
+        ampl=wf.log_amplitude(samples_placeholder,input_dim) #The amplitudes are obtained by feeding the sample of spins.
         optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate_withexpdecay) #Using AdamOptimizer
         init=tf.global_variables_initializer()
     # End Intitializing ----------------------------
@@ -230,7 +221,6 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
             Eloc=tf.placeholder(dtype=tf.complex64,shape=[numsamples])
             samp=tf.placeholder(dtype=tf.int32,shape=[numsamples,N])
             log_amplitudes_=wf.log_amplitude(samp,inputdim=input_dim)
-
             #Now calculate the fake cost function: https://stackoverflow.com/questions/33727935/how-to-use-stop-gradient-in-tensorflow
             #stop_gradient prevents the optimization of Eloc as a variable(?)
             cost = 2*tf.real(tf.reduce_mean(tf.conj(log_amplitudes_)*tf.stop_gradient(Eloc)) - tf.conj(tf.reduce_mean(log_amplitudes_))*tf.reduce_mean(tf.stop_gradient(Eloc)))
@@ -270,23 +260,27 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
             samples = np.ones((numsamples, N), dtype=np.int32)  
             samples_placeholder=tf.placeholder(dtype=tf.int32,shape=(None,N))
             log_ampl_tensor=wf.log_amplitude(samples_placeholder,inputdim=input_dim)
-
         #Allocate array to store matrix elements and log_amplitudes
         #Do this here for memory efficiency as we do not want to allocate it at each training step
             queue_samples = np.zeros((2*N-1, numsamples, N), dtype = np.int32)
-            log_amplitudes = np.zeros((2*N-1)*numsamples, dtype=np.complex64) 
+            log_amplitudes = np.zeros((2*N-1)*numsamples, dtype=np.complex64)
+            if entropy:
+                entropies = np.zeros(numsamples, dtype=np.float64)
 
         ### Set Annealing process for parameters
+            first_annealing = True
             if annealing_parameters!=None:
                     J1, J2, J3, param_steps = annealing_parameters
-                    tot_steps = numsteps-len(meanEnergy) + 1
-                    decay_steps = tot_steps/param_steps
-                    j1_delta = (J1 - J1_) /decay_steps
-                    j2_delta = (J2 - J2_) /decay_steps
-                    j3_delta = (J3 - J3_ )/decay_steps
+                    tot_steps = numsteps-len(meanEnergy)
+                    decay_steps = (tot_steps - param_steps)/param_steps
+                    print("Decay steps = ", decay_steps)
+                    j1_delta = (J1 - J1_)/decay_steps
+                    j2_delta = (J2 - J2_)/decay_steps
+                    j3_delta = (J3 - J3_)/decay_steps
                     print("Performing annealing...")
                     print("Starting with j1 = {j1}, j2 = {j2}, j3 = {j3}".format(j1=J1, j2=J2, j3=J3))
                     print("Changing parameters every {s} steps: j1-={j1}, j2-={j2}, j3-={j3}".format(s=param_steps, j1=j1_delta, j2=j2_delta, j3=j3_delta))
+                    
             else:
                 param_steps = numsteps + 100
                 J1, J2, J3 = (J1_, J2_, J3_)
@@ -294,25 +288,40 @@ def run_Kita1D(numsteps = 10**4, systemsize = 20, num_units = 50, J1_ = 1, J2_ =
                 j2_delta = 0.0
                 j3_delta = 0.0
 
-            if annealing_entropy!=None:
+            first_entropy_annealing = True
+            if entropy:
                 lambda_, entropy_steps = annealing_entropy
+                
             else:
-                lambda_, entropy_steps = (0.0, numsteps + 100)
+                lambda_= 0.0
+                entropy_steps = numsteps + 100
 
             starting_steps = len(meanEnergy)
             for it in range(starting_steps,numsteps+1):
 
                 samples=sess.run(samples_)
 
-                if (it - starting_steps)%param_steps == 0:
-                    J1 -= j1_delta
-                    J2 -= j2_delta
-                    J3 -= j3_delta
-                    print("Step: ", it, " j1-->{j1}, j2-->{j2}, j3-->{j3}".format(j1=J1, j2=J2, j3=J3))
+                #Update Annealing Parameters
+                if (it - starting_steps)%param_steps == 1:
+                    if first_annealing:
+                        first_annealing = False
+                    else:
+                        J1 -= j1_delta
+                        J2 -= j2_delta
+                        J3 -= j3_delta
+                        print("Step: ", it, " j1-->{j1}, j2-->{j2}, j3-->{j3}".format(j1=J1, j2=J2, j3=J3))
+                
+                #Update Entropy Annealing
+                if (it - starting_steps)%entropy_steps == 1:
+                    if first_entropy_annealing:
+                        first_entropy_annealing = False
+                    else:
+                        lambda_ *= 0.96
+                
                 #Estimating local_energies
-                local_energies = Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, batch_size, sess)
-                #if (it - starting_steps)%entropy_steps == 0:
-                    #local_energies += lambda_ * Entropy()
+                local_energies = Kitaev_local_energies(J1, J2, J3, samples, queue_samples, log_ampl_tensor, samples_placeholder, log_amplitudes, lambda_, batch_size, sess)
+
+                
                 meanE = np.mean(local_energies)
                 varE = np.var(np.real(local_energies))
 
@@ -409,3 +418,6 @@ def sample_from_model(numsamples = 10**6, old_numsamples = 200,
             np.save(save_dir + '/samples_'+param_string + savename + ending + '.npy',samples)
             
     return samples
+
+
+    def compute_order_parameter ()
