@@ -3,11 +3,11 @@ import tensorflow as tf
 
 ###################################################################################################333
 
-class MDRNNcell(tf.contrib.rnn.RNNCell):
+class MDRNNcell(tf.compat.v1.nn.rnn_cell.RNNCell):
     """An implementation of the most basic 2DRNN Vanilla RNN cell.
     Args:
         num_units (int): The number of units in the RNN cell, hidden layer size.
-        num_in: Input vector size, input layer size.
+        num_in: Input vector size, input layer size. (hilbert_dimension)
     """
 
     def __init__(self, num_units = None, num_in = None, name=None, dtype = None, reuse=None):
@@ -18,21 +18,21 @@ class MDRNNcell(tf.contrib.rnn.RNNCell):
         self._state_size = num_units
         self._output_size = num_units
 
-        self.Wh = tf.get_variable("Wh_"+name, shape=[num_units, num_units],
-                                    initializer=tf.contrib.layers.xavier_initializer(), dtype = dtype)
+        self.Wh = tf.compat.v1.get_variable("Wh_"+name, shape=[num_units, num_units],
+                                    initializer=tf.compat.v1.keras.initializers.glorot_normal(), dtype = dtype)
 
-        self.Uh = tf.get_variable("Uh_"+name, shape=[num_in,num_units],
-                                    initializer=tf.contrib.layers.xavier_initializer(), dtype = dtype)
+        self.Uh = tf.compat.v1.get_variable("Uh_"+name, shape=[num_in,num_units],
+                                    initializer=tf.compat.v1.keras.initializers.glorot_normal(), dtype = dtype)
 
-        self.Wv = tf.get_variable("Wv_"+name, shape=[num_units, num_units],
-                                    initializer=tf.contrib.layers.xavier_initializer(), dtype = dtype)
+        self.Wv = tf.compat.v1.get_variable("Wv_"+name, shape=[num_units, num_units],
+                                    initializer=tf.compat.v1.keras.initializers.glorot_normal(), dtype = dtype)
 
-        self.Uv = tf.get_variable("Uv_"+name, shape=[num_in,num_units],
-                                    initializer=tf.contrib.layers.xavier_initializer(), dtype = dtype)
+        self.Uv = tf.compat.v1.get_variable("Uv_"+name, shape=[num_in,num_units],
+                                    initializer=tf.compat.v1.keras.initializers.glorot_normal(), dtype = dtype)
 
 
-        self.b = tf.get_variable("b_"+name, shape=[num_units],
-                                    initializer=tf.contrib.layers.xavier_initializer(), dtype = dtype)
+        self.b = tf.compat.v1.get_variable("b_"+name, shape=[num_units],
+                                    initializer=tf.compat.v1.keras.initializers.glorot_normal(), dtype = dtype)
 
 
     # needed properties
