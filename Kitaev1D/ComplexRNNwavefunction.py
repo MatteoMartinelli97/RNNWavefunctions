@@ -153,8 +153,7 @@ class RNNwavefunction(object):
             amplitudes=tf.stack(values=amplitudes,axis=1) # (self.N, num_samples,inputdim) to (num_samples, self.N, inputdim): Generate self.numsamples vectors of size (self.N, inputdim) spin containing the log_amplitudes of each sample
             one_hot_samples=tf.one_hot(samples,depth=self.inputdim)
 
-            print("Amp = ", amplitudes)
-            imp_val = tf.reduce_sum(tf.multiply(amplitudes,tf.complex(one_hot_samples,tf.zeros_like(one_hot_samples))),axis=2)
+            
             self.log_amplitudes = tf.reduce_sum(tf.log(1E-13 + tf.reduce_sum(tf.multiply(amplitudes,tf.complex(one_hot_samples,tf.zeros_like(one_hot_samples))),axis=2)),axis=1) #To get the log amplitude of each sample
 
             return self.log_amplitudes, imp_val
